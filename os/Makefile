@@ -12,6 +12,7 @@ endif
 
 # BOARD
 BOARD := qemu
+# ?= 没有值时才赋值
 SBI ?= rustsbi
 BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
 
@@ -20,11 +21,14 @@ KERNEL_ENTRY_PA := 0x80200000
 
 # Binutils
 OBJDUMP := rust-objdump --arch-name=riscv64
+# OBJCOPY: 将ELF转化成BIN
 OBJCOPY := rust-objcopy --binary-architecture=riscv64
 
 # Disassembly
 DISASM ?= -x
 
+# build 目标，直接make默认执行第一个目标
+# build 依赖env和$(KERNEL_BIN)，所以会先执行这两个依赖再执行自己可能有的其它命令
 build: env $(KERNEL_BIN)
 
 env:
@@ -33,7 +37,9 @@ env:
 	rustup component add rust-src
 	rustup component add llvm-tools-preview
 
+# 变量展开，KERNEL_BIN会替换成具体的值
 $(KERNEL_BIN): kernel
+# @来执行命令行命令
 	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@
 
 kernel:
