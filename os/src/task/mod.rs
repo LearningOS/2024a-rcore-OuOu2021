@@ -35,10 +35,11 @@ pub use context::TaskContext;
 pub struct TaskManager {
     /// total number of tasks
     num_app: usize,
-    /// use inner value to get mutable access
+    /// use inner value to get mutable access 提供内部可变性
     inner: UPSafeCell<TaskManagerInner>,
 }
 
+// 分离出可变部分，TaskManager则只存储常量
 /// Inner of Task Manager
 pub struct TaskManagerInner {
     /// task list
@@ -47,6 +48,7 @@ pub struct TaskManagerInner {
     current_task: usize,
 }
 
+// once_cell::sync::Lazy 需要std支持
 lazy_static! {
     /// Global variable: TASK_MANAGER
     pub static ref TASK_MANAGER: TaskManager = {
@@ -55,6 +57,7 @@ lazy_static! {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
         }; MAX_APP_NUM];
+        // 加载第一个任务
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
@@ -132,6 +135,7 @@ impl TaskManager {
             }
             // go back to user mode
         } else {
+            // 这里其实不是全部完成了，而是找不到下一个没完成的了
             panic!("All applications completed!");
         }
     }
@@ -164,6 +168,7 @@ pub fn suspend_current_and_run_next() {
     run_next_task();
 }
 
+// 抢占式调度
 /// Exit the current 'Running' task and run the next task in task list.
 pub fn exit_current_and_run_next() {
     mark_current_exited();
