@@ -149,10 +149,10 @@ impl TaskManager {
         }
     }
 
-    /// Get the time between the task being scheduled for the first time when the system_call is called
-    fn get_current_task_time(&self) -> usize {
+    /// Get the start time of current time
+    fn get_current_task_start_time(&self) -> usize {
         let inner = TASK_MANAGER.inner.exclusive_access();
-        get_time_ms() - inner.tasks[inner.current_task].start_time
+        inner.tasks[inner.current_task].start_time
     }
 
     fn get_current_task_status(&self) -> TaskStatus {
@@ -208,7 +208,7 @@ pub fn exit_current_and_run_next() {
 
 /// Get the time between the task being scheduled for the first time when the syscall is called
 pub fn get_current_task_time() -> usize {
-    TASK_MANAGER.get_current_task_time()
+    get_time_ms() - TASK_MANAGER.get_current_task_start_time()
 }
 
 /// Get current task's status
