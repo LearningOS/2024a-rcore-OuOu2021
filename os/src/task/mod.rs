@@ -14,9 +14,10 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -56,8 +57,11 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            // start timing when the task is first scheduled
+            start_time: 0usize,
+            syscall_times: [0;MAX_SYSCALL_NUM],
         }; MAX_APP_NUM];
-        // 加载第一个任务
+        // 为每个任务创建上下文
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
@@ -83,6 +87,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
+        task0.start_time = get_time_ms();
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -125,6 +130,10 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            // start timing
+            if inner.tasks[next].start_time == 0 {
+                inner.tasks[next].start_time = get_time_ms();
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -138,6 +147,28 @@ impl TaskManager {
             // 这里其实不是全部完成了，而是找不到下一个没完成的了
             panic!("All applications completed!");
         }
+    }
+
+    /// Get the time between the task being scheduled for the first time when the system_call is called
+    fn get_current_task_time(&self) -> usize {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        get_time_ms() - inner.tasks[inner.current_task].start_time
+    }
+
+    fn get_current_task_status(&self) -> TaskStatus {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        inner.tasks[inner.current_task].task_status
+    }
+
+    fn get_current_task_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        inner.tasks[inner.current_task].syscall_times
+    }
+
+    fn add_current_task_syscall_times(&self, syscall_id: usize) {
+        let mut inner = TASK_MANAGER.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].syscall_times[syscall_id] += 1;
     }
 }
 
@@ -173,4 +204,24 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Get the time between the task being scheduled for the first time when the syscall is called
+pub fn get_current_task_time() -> usize {
+    TASK_MANAGER.get_current_task_time()
+}
+
+/// Get current task's status
+pub fn get_current_task_status() -> TaskStatus {
+    TASK_MANAGER.get_current_task_status()
+}
+
+/// Get the number of times each syscall has been called by current task
+pub fn get_current_task_syscall_times() -> [u32; MAX_SYSCALL_NUM] {
+    TASK_MANAGER.get_current_task_syscall_times()
+}
+
+/// Add syscall times of current task when syscall is called
+pub fn on_syscall(syscall_id: usize) {
+    TASK_MANAGER.add_current_task_syscall_times(syscall_id);
 }
