@@ -22,6 +22,39 @@
 6. `sp`指向内核栈，而`sscratch`存储用户栈指针，待`__restore`时调换回来
 7. 用户态（U特权级）发生`ecall`，处理器接收到`Trap`时会自动切换为S特权级，然后才进入内核态的`__alltraps`过程[实现特权级的切换(rCore-Tutorial-Book-v3)](https://rcore-os.gitcode.host/rCore-Tutorial-Book-v3/chapter2/4trap-handling.html#)
 
+## 闲聊
+* 使用了非正常函数调用控制流的语句（如`_switch`汇编修改了`ra`，实现任务切换），对应Rust函数封装时需要返回`-> !`，感觉很`tricky`，难道`Rust`作为很注重系统编程方面应用的语言，没有更合适的语法来完成吗。同时还要特别注意，因为函数不会正常返回，所以也无法正常自动`drop`，所以需要用`drop`函数**手动释放**借用的资源（无法编译期检查？）
+* 汇编中定义的变量在`Rust`里更是逆天，以下代码类似于在汇编中开了一个可变数组，第一个值是元素个数，后面是元素。
+```asm
+_num_app:
+	.quad 7
+	.quad app_0_start
+	.quad app_1_start
+	.quad app_2_start
+	.quad app_3_start
+	.quad app_4_start
+	.quad app_5_start
+	.quad app_6_start
+```
+* 在Rust 内核态代码里需要这样接收：
+```rust
+extern "C" {
+	// 声明函数只是为了得到地址而已，是因为Rust语法直接引入外部变量符号的地址，只能引入外部函数
+	fn _num_app();
+}
+// 转成地址
+let num_app_ptr = _num_app as usize as *const usize;
+// 取第一个值
+let num_app = num_app_ptr.read_volatile();
+// 声明数组
+let mut app_start: [usize; MAX_APP_NUM+1] = [0; MAX_APP_NUM+1];
+// 取`_num_app[1]~_num_app[_num_app[0]+1]`，分别存储了所有app的start以及最后一个app的end地址
+let app_start_raw: &[usize] = core::slice::from_raw_parts(num_app_ptr.add(1), num_app+1);
+// 将0~num_app切片赋初值
+app_start[..=num_app].copy_from_slice(app_start_raw);
+```
+* `lazy_static!`好像可以用最新稳定的`core::cell::LazyCell`替代
+
 ## 荣誉准则
 1. 在完成本次实验的过程（含此前学习的过程）中，我曾分别与 ChatGPT、Microsoft Copilot 就（与本次实验相关的）以下方面做过交流，还在代码中对应的位置以注释形式记录了具体的交流对象及内容：
 
